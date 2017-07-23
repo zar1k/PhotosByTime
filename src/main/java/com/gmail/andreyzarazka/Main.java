@@ -4,8 +4,8 @@ import com.drew.imaging.ImageMetadataReader;
 import com.drew.imaging.ImageProcessingException;
 import com.drew.metadata.Directory;
 import com.drew.metadata.Metadata;
-import com.drew.metadata.Tag;
-import com.drew.metadata.exif.ExifSubIFDDirectory;
+import com.drew.metadata.exif.*;
+import com.drew.metadata.file.FileMetadataDirectory;
 import com.gmail.andreyzarazka.model.PhotoInfo;
 import com.gmail.andreyzarazka.utils.NameComparator;
 import com.gmail.andreyzarazka.utils.ShootingDateComparator;
@@ -17,63 +17,55 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.TreeSet;
 
-import static com.gmail.andreyzarazka.utils.Extension.getFileExtension;
+import static com.gmail.andreyzarazka.utils.FileUtil.formatNumber;
+import static com.gmail.andreyzarazka.utils.FileUtil.getFileExtension;
+import static com.gmail.andreyzarazka.utils.FileUtil.getSupportedExtensions;
 
 public class Main {
-    final static String FLAG_FILE_MODIFIED_DATE = "File Modified Date";
-
     public static void main(String[] args) throws ImageProcessingException, IOException {
+        String supportedExtensions = getSupportedExtensions();
         Comparator<PhotoInfo> comparator = new ShootingDateComparator().thenComparing(new SizeComparator()).thenComparing(new NameComparator());
         TreeSet<PhotoInfo> photoInfos = new TreeSet<>(comparator);
         int count = 0;
 
-        Path pathCurrentFolder = Paths.get("D:\\");
-        DirectoryStream<Path> paths = Files.newDirectoryStream(pathCurrentFolder);
+        Path pathCurrentFolder = Paths.get("D:\\tmp");
+        DirectoryStream<Path> paths = Files.newDirectoryStream(pathCurrentFolder, supportedExtensions);
         for (Path path : paths) {
             // Исключаем каталоги и скрытые файлы
             if (path.toFile().isFile() && !path.toFile().isHidden()) {
                 count++;
 
                 Metadata metadata = ImageMetadataReader.readMetadata(path.toFile());
+                ExifDirectoryBase exifIFD0 = metadata.getFirstDirectoryOfType(ExifIFD0Directory.class);
+                ExifDirectoryBase exifSub = metadata.getFirstDirectoryOfType(ExifSubIFDDirectory.class);
+                Directory directory = metadata.getFirstDirectoryOfType(FileMetadataDirectory.class);
 
-                //Returns the number of milliseconds since January 1, 1970, 00:00:00 GMT represented by this Date object.
-                ExifSubIFDDirectory dire = metadata.getFirstDirectoryOfType(ExifSubIFDDirectory.class);
-                Date date;
-                long shootingDate = 0L;
-                if (dire != null) {
-                    date = dire.getDate(ExifSubIFDDirectory.TAG_DATETIME_ORIGINAL);
-                    if (date != null) {
-                        shootingDate = date.getTime();
+                Date dateOriginal;
+                long timestamp;
+
+                if (exifSub != null) {
+                    dateOriginal = exifSub.getDate(ExifSubIFDDirectory.TAG_DATETIME_ORIGINAL);
+                    if (dateOriginal != null) {
+                        timestamp = dateOriginal.getTime();
                     } else {
-                        for (Directory directory : metadata.getDirectories()) {
-                            for (Tag tag : directory.getTags()) {
-                                System.out.format("[%s] - %s = %s\n", directory.getName(), tag.getTagName(), tag.getDescription());
-                                if (FLAG_FILE_MODIFIED_DATE == tag.getTagName()) {
-                                    System.out.println("*****************************************************************");
-                                    System.out.println(tag.getDescription());
-                                }
-                            }
-
-//                            if (directory.hasErrors()) {
-//                                for (String error : directory.getErrors()) {
-//                                    System.err.format("ERROR: %s", error);
-//                                }
-//                            }
-                        }
+                        timestamp = exifIFD0.getDate(ExifIFD0Directory.TAG_DATETIME).getTime();
                     }
+                } else {
+                    timestamp = directory.getDate(FileMetadataDirectory.TAG_FILE_MODIFIED_DATE).getTime();
                 }
-
-                photoInfos.add(new PhotoInfo(shootingDate, path.toFile().length(), getFileExtension(path.getFileName().toString()), path.getFileName().toString(), path.getParent().toString()));
+                photoInfos.add(new PhotoInfo(timestamp, path.toFile().length(), getFileExtension(path.getFileName().toString()), path.getFileName().toString(), path.getParent().toString()));
             }
         }
+
+        System.out.println(count + " файла(ов).");
 
         int counterPhotos = 0;
         for (PhotoInfo photo : photoInfos) {
             counterPhotos++;
             Path currentPath = Paths.get(photo.getPath() + "\\" + photo.getName());
-            Path newPath = Paths.get("D:\\tmp_foto\\" + "Photo_" + counterPhotos + photo.getExtension());
+            Path newPath = Paths.get("D:\\tmp_foto\\" + "NAME" + formatNumber(count, counterPhotos) + photo.getExtension());
             Files.copy(currentPath, newPath, StandardCopyOption.REPLACE_EXISTING);
         }
-        System.out.println("Копирование завершинно");
+        System.out.println("Копирование завершинно. Скопировано " + counterPhotos + " файла(ов).");
     }
 }
